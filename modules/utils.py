@@ -27,10 +27,10 @@ VOSK_MODELS = {
         "description": "Accurate generic US English model trained by Kaldi on Gigaspeech. Mostly for podcasts, not for telephony"
     },
     "small-in": {
-        "name": "Small Indian English Model (36GB)",
+        "name": "Small Indian English Model (36MB)",
         "url": "https://alphacephei.com/vosk/models/vosk-model-small-en-in-0.4.zip",
         "folder": "vosk-model-small-en-in-0.4",
-        "size": "36B",
+        "size": "36MB",
         "description": "Lightweight Indian English model for mobile applications"
     },
     "medium-in": {
@@ -259,8 +259,9 @@ def get_video_duration(video_path):
     except (ValueError, TypeError):
         return 0
 
+# javascript implementation for dynamic subtitle display
 def display_dynamic_subtitles(result, original_video_path):
-    """Display video with dynamic subtitles overlay - simplified approach"""
+    """Display video with synchronized dynamic subtitles overlay"""
     # Make sure we have segments
     if "segments" not in result or not result["segments"]:
         st.warning("No subtitle segments found. Dynamic subtitles cannot be displayed.")
@@ -268,39 +269,93 @@ def display_dynamic_subtitles(result, original_video_path):
     
     segments = result["segments"]
     
-    # Display the original video
-    st.video(original_video_path)
+    # Style options in a collapsible section
+    with st.expander("Subtitle Style Options", expanded=False):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            font_size = st.select_slider("Font Size", options=[16, 18, 20, 22, 24, 26, 28, 30], value=24)
+        with col2:
+            bg_opacity = st.select_slider("Background Opacity", options=[0.0, 0.3, 0.5, 0.7, 0.9], value=0.7)
+        with col3:
+            text_color = st.selectbox("Text Color", options=["white", "yellow", "cyan"], index=0)
     
-    # Add a section for viewing subtitles
-    st.subheader("Dynamic Subtitles Viewer")
-    st.info("Use the slider below to view subtitles at different points in the video.")
+    # Create a container for the video and subtitles
+    video_container = st.container()
     
-    # Get the maximum time from segments
-    max_time = max(segment["end"] for segment in segments) + 1
-    
-    # Create a slider for navigating through the video
-    current_time = st.slider("Video Position (seconds)", 0.0, max_time, 0.0, 0.1)
-    
-    # Find the current subtitle text based on time
-    current_subtitle = "No subtitle at this time position."
-    for segment in segments:
-        if segment["start"] <= current_time <= segment["end"]:
-            current_subtitle = segment["text"]
-            break
-    
-    # Style options
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        font_size = st.select_slider("Font Size", options=[14, 16, 18, 20, 22, 24, 26, 28, 30], value=20)
-    with col2:
-        bg_opacity = st.select_slider("Background Opacity", options=[0.0, 0.3, 0.5, 0.7, 0.9, 1.0], value=0.7)
-    with col3:
-        text_color = st.selectbox("Text Color", options=["white", "yellow", "cyan"], index=0)
-    
-    # Display the current subtitle with styling
-    st.markdown(
-        f"""
-        <div style="
+    with video_container:
+        # Get video element
+        video_element = st.video(original_video_path)
+        
+        # Prepare subtitle container with fixed height to avoid layout shifts
+        subtitle_container = st.container()
+        subtitle_placeholder = subtitle_container.empty()
+        
+        # Create a synced subtitle display using JavaScript via st.markdown
+        # Convert segments to a JavaScript-friendly format
+        segments_js = []
+        for seg in segments:
+            segments_js.append({
+                "start": seg["start"],
+                "end": seg["end"],
+                "text": seg["text"].replace("'", "\\'").replace("\n", " ")
+            })
+        
+        # Create a JavaScript function to update subtitles based on video time
+        js_code = f"""
+        <script>
+        // Function to wait for video element to be loaded
+        function waitForElement(selector, callback) {{
+            if (document.querySelector(selector)) {{
+                callback();
+            }} else {{
+                setTimeout(() => waitForElement(selector, callback), 100);
+            }}
+        }}
+        
+        // Wait for video element to be ready
+        waitForElement('video', () => {{
+            const videoElement = document.querySelector('video');
+            const subtitleDiv = document.getElementById('dynamic-subtitle');
+            const segments = {segments_js};
+            
+            // Add timeupdate event listener to the video
+            videoElement.addEventListener('timeupdate', function() {{
+                const currentTime = videoElement.currentTime;
+                let currentSubtitle = "";
+                
+                // Find appropriate subtitle for current time
+                for (const segment of segments) {{
+                    if (currentTime >= segment.start && currentTime <= segment.end) {{
+                        currentSubtitle = segment.text;
+                        break;
+                    }}
+                }}
+                
+                // Update subtitle content
+                subtitleDiv.innerHTML = currentSubtitle;
+            }});
+            
+            // Also handle play/pause events
+            videoElement.addEventListener('pause', function() {{
+                const currentTime = videoElement.currentTime;
+                let currentSubtitle = "";
+                
+                for (const segment of segments) {{
+                    if (currentTime >= segment.start && currentTime <= segment.end) {{
+                        currentSubtitle = segment.text;
+                        break;
+                    }}
+                }}
+                
+                subtitleDiv.innerHTML = currentSubtitle;
+            }});
+            
+            // Initial update
+            videoElement.dispatchEvent(new Event('timeupdate'));
+        }});
+        </script>
+        
+        <div id="dynamic-subtitle" style="
             background-color: rgba(0,0,0,{bg_opacity}); 
             color: {text_color}; 
             padding: 15px; 
@@ -309,19 +364,19 @@ def display_dynamic_subtitles(result, original_video_path):
             font-size: {font_size}px;
             margin-top: 10px;
             font-weight: 500;
-        ">{current_subtitle}</div>
-        """,
-        unsafe_allow_html=True
-    )
+            min-height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        "></div>
+        """
+        
+        # Display the JavaScript and subtitle container
+        subtitle_placeholder.markdown(js_code, unsafe_allow_html=True)
     
     # Add a section to display the full transcript
     with st.expander("Show Full Transcript"):
         for i, segment in enumerate(segments):
             start_time = format_time(segment["start"]).replace(',', '.')
             end_time = format_time(segment["end"]).replace(',', '.')
-            
-            # Highlight the current segment
-            if segment["start"] <= current_time <= segment["end"]:
-                st.markdown(f"**[{start_time} → {end_time}]** {segment['text']}")
-            else:
-                st.markdown(f"[{start_time} → {end_time}] {segment['text']}")
+            st.markdown(f"[{start_time} → {end_time}] {segment['text']}")
