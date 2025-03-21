@@ -26,10 +26,10 @@ def main():
     os.makedirs("output/videos", exist_ok=True)
     
     # Render sidebar with settings
-    model_key, max_line_length, max_line_duration, display_mode = render_sidebar()
+    model_key, max_line_length, max_line_duration = render_sidebar()
     
     # Render main area with file upload and processing
-    render_main_area(model_key, max_line_length, max_line_duration, display_mode)
+    render_main_area(model_key, max_line_length, max_line_duration)
 
 if __name__ == "__main__":
     # Create models directory if it doesn't exist

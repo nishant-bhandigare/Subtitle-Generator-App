@@ -65,33 +65,30 @@ def process_video(video_path, model_key, max_line_length, max_line_duration):
         
         # Step 4: Create SRT files
         with st.spinner("Creating subtitle files..."):
-            # Create a module function for format_time if not imported
             srt_path = create_srt_file(segments, srt_path)
             create_srt_file(segments, project_srt_path)
             st.success(f"Subtitle file created: {project_srt_path}")
         
-        # Step 5: Burn subtitles into video - wrap this in try/except to continue even if it fails
+        # Step 5: Burn subtitles into video for download option
         subtitle_burned = False
         try:
-            with st.spinner("Adding subtitles to video..."):
-                # Check that the files exist before attempting to burn
+            with st.spinner("Adding subtitles to video for download..."):
                 if not os.path.exists(video_path):
                     raise FileNotFoundError(f"Video file not found: {video_path}")
                     
                 if not os.path.exists(srt_path):
                     raise FileNotFoundError(f"SRT file not found: {srt_path}")
                 
-                # Attempt to burn subtitles
                 output_video_path = burn_subtitles_into_video(video_path, srt_path, output_video_path)
                 subtitle_burned = True
-                st.success("Subtitles burned into video successfully!")
+                st.success("Video with subtitles created successfully!")
         except Exception as e:
             st.error(f"Error burning subtitles: {str(e)}")
-            st.warning("Continuing with dynamic subtitles only...")
+            st.warning("Only SRT file will be available for download.")
             import traceback
             print(f"Subtitle burning error details: {traceback.format_exc()}")
         
-        # Return results - if subtitle burning failed, set output_video_path to original video
+        # Return results
         result = {
             "output_video_path": output_video_path if subtitle_burned else video_path,
             "srt_path": srt_path,

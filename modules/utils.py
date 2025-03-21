@@ -259,7 +259,6 @@ def get_video_duration(video_path):
     except (ValueError, TypeError):
         return 0
 
-# javascript implementation for dynamic subtitle display
 def display_dynamic_subtitles(result, original_video_path):
     """Display video with synchronized dynamic subtitles overlay"""
     # Make sure we have segments
@@ -373,10 +372,3 @@ def display_dynamic_subtitles(result, original_video_path):
         
         # Display the JavaScript and subtitle container
         subtitle_placeholder.markdown(js_code, unsafe_allow_html=True)
-    
-    # Add a section to display the full transcript
-    with st.expander("Show Full Transcript"):
-        for i, segment in enumerate(segments):
-            start_time = format_time(segment["start"]).replace(',', '.')
-            end_time = format_time(segment["end"]).replace(',', '.')
-            st.markdown(f"[{start_time} → {end_time}] {segment['text']}")
