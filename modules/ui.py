@@ -1,7 +1,6 @@
 import streamlit as st
 import os
 import tempfile
-import time
 from pathlib import Path
 from modules.video_processor import process_video
 from modules.utils import VOSK_MODELS, download_model, display_dynamic_subtitles, format_time
@@ -60,14 +59,29 @@ def render_sidebar():
 
 def render_main_area(model_key, max_line_length, max_line_duration):
     """Render the main area with file upload and processing"""
-    uploaded_file = st.file_uploader("Upload your video", type=["mp4", "mov", "avi", "mkv"])
+    # Initialize session state if not already done
+    if 'processed_video' not in st.session_state:
+        st.session_state.processed_video = False
+        st.session_state.video_path = None
+        st.session_state.result = None
+        st.session_state.file_uploader_key = "file_uploader_1"
     
-    if uploaded_file is not None:
+    # File uploader with a key from session state (to control when it resets)
+    uploaded_file = st.file_uploader(
+        "Upload your video", 
+        type=["mp4", "mov", "avi", "mkv"],
+        key=st.session_state.file_uploader_key
+    )
+    
+    # Handle the upload logic
+    if uploaded_file is not None and not st.session_state.processed_video:
         # Save uploaded file to disk
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=Path(uploaded_file.name).suffix)
         temp_file.write(uploaded_file.getvalue())
         video_path = temp_file.name
         temp_file.close()
+        
+        st.session_state.video_path = video_path
         
         # Show uploaded video
         st.video(video_path)
@@ -85,37 +99,51 @@ def render_main_area(model_key, max_line_length, max_line_duration):
                         result = process_video(
                             video_path, model_key, max_line_length, max_line_duration
                         )
+                        # Store result in session state
+                        st.session_state.result = result
+                        st.session_state.processed_video = True
+                        # Force a rerun to show results without reprocessing
+                        # st.experimental_user
                     except Exception as e:
                         st.error(f"Error processing video: {str(e)}")
                         import traceback
                         st.error(f"Details: {traceback.format_exc()}")
-                        result = None
-                
-                if result:
-                    # Show results
-                    st.success("Transcription completed successfully!")
-                    
-                    # Check for segments
-                    has_segments = "segments" in result and result["segments"]
-                    
-                    if has_segments:
-                        # Display video with dynamic subtitles
-                        display_dynamic_subtitles(result, video_path)
-                        
-                        # Show transcript
-                        with st.expander("Show Full Transcript", expanded=False):
-                            segments = result["segments"]
-                            for i, segment in enumerate(segments):
-                                start_time = format_time(segment["start"]).replace(',', '.')
-                                end_time = format_time(segment["end"]).replace(',', '.')
-                                st.markdown(f"[{start_time} → {end_time}] {segment['text']}")
-                        
-                        # Display download options
-                        display_download_options(result)
-                    else:
-                        st.error("No subtitle segments were generated. Check for speech in the video.")
-                else:
-                    st.error("Processing failed. Please check the logs for more details.")
+    
+    # If video has been processed, show results
+    if st.session_state.processed_video and st.session_state.result:
+        result = st.session_state.result
+        video_path = st.session_state.video_path
+        
+        # Show results
+        st.success("Transcription completed successfully!")
+        
+        # Check for segments
+        has_segments = "segments" in result and result["segments"]
+        
+        if has_segments:
+            # Display video with dynamic subtitles
+            display_dynamic_subtitles(result, video_path)
+            
+            # Show transcript
+            with st.expander("Show Full Transcript", expanded=False):
+                segments = result["segments"]
+                for i, segment in enumerate(segments):
+                    start_time = format_time(segment["start"]).replace(',', '.')
+                    end_time = format_time(segment["end"]).replace(',', '.')
+                    st.markdown(f"[{start_time} → {end_time}] {segment['text']}")
+            
+            # Display download options
+            display_download_options(result)
+        else:
+            st.error("No subtitle segments were generated. Check for speech in the video.")
+        
+        # Add a button to process a new video
+        if st.button("Process a New Video"):
+            st.session_state.processed_video = False
+            st.session_state.video_path = None
+            st.session_state.result = None
+            st.session_state.file_uploader_key = f"file_uploader_{id(uploaded_file)}"
+            # st.rerun()
 
 def display_download_options(result):
     """Display download options for video and SRT file"""
