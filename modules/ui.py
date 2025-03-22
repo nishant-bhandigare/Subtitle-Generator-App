@@ -4,7 +4,7 @@ import tempfile
 import time
 from pathlib import Path
 from modules.video_processor import process_video
-from modules.utils import VOSK_MODELS, download_model, format_time
+from modules.utils import VOSK_MODELS, download_model, display_dynamic_subtitles, format_time
 
 def render_sidebar():
     """Render the sidebar with all settings"""
@@ -99,6 +99,9 @@ def render_main_area(model_key, max_line_length, max_line_duration):
                     has_segments = "segments" in result and result["segments"]
                     
                     if has_segments:
+                        # Display video with dynamic subtitles
+                        display_dynamic_subtitles(result, video_path)
+                        
                         # Show transcript
                         with st.expander("Show Full Transcript", expanded=False):
                             segments = result["segments"]

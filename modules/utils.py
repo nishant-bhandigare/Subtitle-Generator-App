@@ -2,6 +2,7 @@ import os
 import subprocess
 import streamlit as st
 import time
+import base64
 
 # Define available Vosk models with their sizes and download URLs
 VOSK_MODELS = {
@@ -261,7 +262,6 @@ def get_video_duration(video_path):
 
 def display_dynamic_subtitles(result, original_video_path):
     """Display video with synchronized dynamic subtitles overlay"""
-    # Make sure we have segments
     if "segments" not in result or not result["segments"]:
         st.warning("No subtitle segments found. Dynamic subtitles cannot be displayed.")
         return
@@ -278,97 +278,127 @@ def display_dynamic_subtitles(result, original_video_path):
         with col3:
             text_color = st.selectbox("Text Color", options=["white", "yellow", "cyan"], index=0)
     
-    # Create a container for the video and subtitles
-    video_container = st.container()
+    # Instead of using st.video, we'll create our own video player with subtitles
+    st.markdown("### Video with Dynamic Subtitles")
     
-    with video_container:
-        # Get video element
-        video_element = st.video(original_video_path)
-        
-        # Prepare subtitle container with fixed height to avoid layout shifts
-        subtitle_container = st.container()
-        subtitle_placeholder = subtitle_container.empty()
-        
-        # Create a synced subtitle display using JavaScript via st.markdown
-        # Convert segments to a JavaScript-friendly format
-        segments_js = []
-        for seg in segments:
-            segments_js.append({
-                "start": seg["start"],
-                "end": seg["end"],
-                "text": seg["text"].replace("'", "\\'").replace("\n", " ")
-            })
-        
-        # Create a JavaScript function to update subtitles based on video time
-        js_code = f"""
-        <script>
-        // Function to wait for video element to be loaded
-        function waitForElement(selector, callback) {{
-            if (document.querySelector(selector)) {{
-                callback();
-            }} else {{
-                setTimeout(() => waitForElement(selector, callback), 100);
+    # Read the video file as base64 to embed directly in HTML
+    with open(original_video_path, "rb") as f:
+        video_bytes = f.read()
+    
+    video_base64 = base64.b64encode(video_bytes).decode()
+    video_mime = "video/mp4"  # Adjust if needed based on file type
+    
+    # Create a unique ID for this subtitle container
+    subtitle_id = f"subtitle-container-{int(time.time())}"
+    video_id = f"video-player-{int(time.time())}"
+    
+    # Convert segments for JavaScript
+    segments_js = []
+    for seg in segments:
+        segments_js.append({
+            "start": seg["start"],
+            "end": seg["end"],
+            "text": seg["text"].replace('"', '\\"').replace('\n', ' ')
+        })
+    
+    # Create HTML with embedded video and subtitles
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            body {{
+                margin: 0;
+                padding: 0;
+                font-family: sans-serif;
+                overflow-x: hidden;
             }}
-        }}
+            .video-container {{
+                width: 100%;
+                max-width: 800px;
+                margin: 0 auto 120px auto; /* Added bottom margin */
+                position: relative;
+            }}
+            video {{
+                width: 100%;
+                display: block;
+            }}
+            .subtitle-container {{
+                background-color: rgba(0,0,0,{bg_opacity});
+                color: {text_color};
+                padding: 15px;
+                border-radius: 5px;
+                text-align: center;
+                font-size: {font_size}px;
+                margin: 10px auto 40px auto; /* Increased bottom margin */
+                font-weight: 500;
+                min-height: 80px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border: 2px solid rgba(255,255,255,0.3);
+                max-width: 100%;
+                z-index: 100; /* Ensure subtitles are on top */
+            }}
+            /* Spacer to prevent overlap with Streamlit elements */
+            .bottom-spacer {{
+                height: 60px;
+                width: 100%;
+                display: block;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="video-container">
+            <video id="{video_id}" controls>
+                <source src="data:{video_mime};base64,{video_base64}" type="{video_mime}">
+                Your browser does not support the video tag.
+            </video>
+            
+            <div id="{subtitle_id}" class="subtitle-container">
+                Waiting for video playback...
+            </div>
+            
+            <div class="bottom-spacer"></div>
+        </div>
         
-        // Wait for video element to be ready
-        waitForElement('video', () => {{
-            const videoElement = document.querySelector('video');
-            const subtitleDiv = document.getElementById('dynamic-subtitle');
-            const segments = {segments_js};
-            
-            // Add timeupdate event listener to the video
-            videoElement.addEventListener('timeupdate', function() {{
-                const currentTime = videoElement.currentTime;
-                let currentSubtitle = "";
+        <script>
+            document.addEventListener('DOMContentLoaded', function() {{
+                const video = document.getElementById('{video_id}');
+                const subtitleDiv = document.getElementById('{subtitle_id}');
+                const segments = {segments_js};
                 
-                // Find appropriate subtitle for current time
-                for (const segment of segments) {{
-                    if (currentTime >= segment.start && currentTime <= segment.end) {{
-                        currentSubtitle = segment.text;
-                        break;
+                function updateSubtitles() {{
+                    const currentTime = video.currentTime;
+                    let text = '';
+                    
+                    for (const segment of segments) {{
+                        if (currentTime >= segment.start && currentTime <= segment.end) {{
+                            text = segment.text;
+                            break;
+                        }}
                     }}
+                    
+                    subtitleDiv.textContent = text || ' ';
                 }}
                 
-                // Update subtitle content
-                subtitleDiv.innerHTML = currentSubtitle;
-            }});
-            
-            // Also handle play/pause events
-            videoElement.addEventListener('pause', function() {{
-                const currentTime = videoElement.currentTime;
-                let currentSubtitle = "";
+                video.addEventListener('timeupdate', updateSubtitles);
+                video.addEventListener('play', updateSubtitles);
+                video.addEventListener('seeking', updateSubtitles);
                 
-                for (const segment of segments) {{
-                    if (currentTime >= segment.start && currentTime <= segment.end) {{
-                        currentSubtitle = segment.text;
-                        break;
-                    }}
-                }}
-                
-                subtitleDiv.innerHTML = currentSubtitle;
+                // Initial update
+                video.addEventListener('loadeddata', updateSubtitles);
             }});
-            
-            // Initial update
-            videoElement.dispatchEvent(new Event('timeupdate'));
-        }});
         </script>
-        
-        <div id="dynamic-subtitle" style="
-            background-color: rgba(0,0,0,{bg_opacity}); 
-            color: {text_color}; 
-            padding: 15px; 
-            border-radius: 5px; 
-            text-align: center; 
-            font-size: {font_size}px;
-            margin-top: 10px;
-            font-weight: 500;
-            min-height: 60px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        "></div>
-        """
-        
-        # Display the JavaScript and subtitle container
-        subtitle_placeholder.markdown(js_code, unsafe_allow_html=True)
+    </body>
+    </html>
+    """
+    
+    # Increase height to accommodate video, subtitles and avoid overlap
+    video_height = 600  # Increased from 500 to 600
+    
+    # Display the custom HTML component
+    st.components.v1.html(html_content, height=video_height)
+    
+    # Add extra space after the component to prevent overlap
+    st.markdown("<div style='height: 40px'></div>", unsafe_allow_html=True)
